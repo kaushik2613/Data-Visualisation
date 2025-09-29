@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Top 10 Terrorist Groups</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .bar {
+            transition: opacity 0.3s ease;
+        }
+
+        .bar:hover {
+            opacity: 0.8;
+        }
+
+        .label {
+            font-size: 12px;
+        }
+
+        .axis text {
+            font-size: 12px;
+        }
+
+        .dropdown {
+            margin: 10px;
+        }
+
+        .total-incidents {
+            font-size: 16px;
+            margin: 10px;
+            font-weight: bold;
+        }
+
+        .error-message {
+            color: red;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="total-incidents" id="totalIncidents"></div>
+    <div class="dropdown">
+        <label for="yearSelect">Select Year: </label>
+        <select id="yearSelect"></select>
+    </div>
+
+    <div id="errorMessage" class="error-message"></div>
+    <div id="chart"></div>
+
+    <script>
+        // Set up dimensions
+        const margin = {top: 20, right: 30, bottom: 40, left: 200};
+        const width = 800 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        // Create SVG
+        const svg = d3.select("#chart")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Load and process data
+        d3.csv("region_01 (1).csv").then(function(data) {
+            // Process the data
+            data.forEach(d => {
+                d.iyear = +d.iyear; // Ensure year is numeric
+                d.nkill = +d.nkill || 0; // If nkill is missing, set to 0
+            });
+
+            // Extract unique years for dropdown
+            const years = [...new Set(data.map(d => d.iyear))];
+            const yearSelect = d3.select("#yearSelect");
+            yearSelect
+                .selectAll("option")
+                .data(years)
+                .enter()
+                .append("option")
+                .attr("value", d => d)
+                .text(d => d);
+
+            // Set default year
+            let selectedYear = years[0];
+            updateChart(selectedYear);
+
+            // Update chart when year changes
+            yearSelect.on("change", function() {
+                selectedYear = this.value;
+                updateChart(selectedYear);
+            });
+
+            function updateChart(year) {
+                // Clear previous error message
+                d3.select("#errorMessage").text("");
+
+                // Filter data by selected year
+                const yearData = data.filter(d => d.iyear === +year);
+
+                // Aggregate incidents by group name
+                const groupData = d3.rollups(
+                    yearData,
+                    v => d3.sum(v, d => d.nkill), // Sum the number of killings (incidents)
+                    d => d.gname // Group by terrorist group name
+                );
+
+                // Sort by incident count and get the top 10
+                const topGroups = groupData
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 10);
+
+                // Error handling: fewer than 10 groups
+                if (topGroups.length < 10) {
+                    d3.select("#errorMessage")
+                        .text(`Warning: Only ${topGroups.length} groups have incidents in ${year}.`);
+                }
+
+                // Set the total incidents for the selected year
+                const totalIncidents = d3.sum(topGroups, d => d[1]);
+                d3.select("#totalIncidents").text(`Total Incidents: ${totalIncidents}`);
+
+                // Create the color scale
+                const colorScale = d3.scaleSequential(d3.interpolateBlues)
+                    .domain([0, d3.max(topGroups, d => d[1])]);
+
+                // Set up the scales
+                const x = d3.scaleLinear()
+                    .domain([0, d3.max(topGroups, d => d[1])])
+                    .range([0, width]);
+
+                const y = d3.scaleBand()
+                    .domain(topGroups.map(d => d[0]))
+                    .range([0, height])
+                    .padding(0.1);
+
+                // Create bars
+                const bars = svg.selectAll(".bar")
+                    .data(topGroups, d => d[0]);
+
+                // Enter new bars with animation for initial loading
+                const barsEnter = bars.enter().append("g")
+                    .attr("class", "bar")
+                    .attr("transform", d => `translate(0,${y(d[0])})`);
+
+                barsEnter.append("rect")
+                    .attr("width", 0)
+                    .attr("height", y.bandwidth())
+                    .attr("fill", d => colorScale(d[1]))
+                    .transition()
+                    .duration(1000) // Animation duration
+                    .attr("width", d => x(d[1]));
+
+                barsEnter.append("text")
+                    .attr("x", 10)
+                    .attr("y", y.bandwidth() / 2)
+                    .attr("dy", ".35em")
+                    .attr("class", "label")
+                    .text(d => `${d[0]}: ${d[1]}`)
+                    .style("fill", "#ffffff");
+
+                // Update existing bars (in case data is being updated)
+                bars.select("rect")
+                    .transition()
+                    .duration(1000)
+                    .attr("width", d => x(d[1]));
+
+                bars.select("text")
+                    .text(d => `${d[0]}: ${d[1]}`);
+
+                // Remove old bars
+                bars.exit().transition().duration(1000)
+                    .attr("width", 0)
+                    .remove();
+
+                // Create x-axis
+                svg.selectAll(".x-axis").remove();
+                svg.append("g")
+                    .attr("class", "x-axis")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(x));
+
+                // Create y-axis
+                svg.selectAll(".y-axis").remove();
+                svg.append("g")
+                    .attr("class", "y-axis")
+                    .call(d3.axisLeft(y));
+
+                // Add hover effect
+                svg.selectAll(".bar rect")
+                    .on("mouseover", function(event, d) {
+                        d3.select(this)
+                            .attr("fill", "#FF6347"); // Change color on hover
+                        d3.select(this).transition()
+                            .duration(300)
+                            .attr("opacity", 0.7);
+                    })
+                    .on("mouseout", function(event, d) {
+                        d3.select(this)
+                            .attr("fill", colorScale(d[1])); // Reset color
+                        d3.select(this).transition()
+                            .duration(300)
+                            .attr("opacity", 1);
+                    });
+            }
+        });
+
+    </script>
+</body>
+</html>

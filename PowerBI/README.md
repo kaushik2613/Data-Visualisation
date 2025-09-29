@@ -1,4 +1,5 @@
 PowerBI Tasks:
+
 Geospatial Analysis of Attacks
 
 Omate a map visualization using lattude and longitude Use bubible stoe to represent the mander of casualties Inglement a slicer forfaring by year and region
